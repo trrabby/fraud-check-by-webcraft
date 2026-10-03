@@ -1,0 +1,33 @@
+courier-fraud-check/
+├── src/
+│   ├── app.js
+│   ├── server.js
+│   ├── config/
+│   │   └── index.js
+│   ├── helpers/
+│   │   └── courierDataValidator.js
+│   ├── utils/
+│   │   └── cache.js
+│   ├── services/
+│   │   ├── steadfastService.js
+│   │   ├── pathaoService.js
+│   │   ├── redxService.js
+│   │   ├── paperflyService.js
+│   │   └── carrybeeService.js
+│   ├── managers/
+│   │   └── fraudCheckerManager.js
+│   ├── controllers/
+│   │   └── fraudController.js
+│   ├── middleware/
+│   │   ├── validatePhone.js
+│   │   └── errorHandler.js
+│   └── routes/
+│       └── api.js
+├── views/
+│   └── index.ejs
+├── public/
+│   └── style.css
+├── .env.example
+├── .gitignore
+├── package.json
+└── README.md

@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title><%= appName %></title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>🛡️ Courier Fraud Check</h1>
+        <p class="subtitle">by WebCraft</p>
+      </header>
+
+      <form id="checkForm" autocomplete="off">
+        <input
+          id="phone"
+          name="phone"
+          type="tel"
+          inputmode="numeric"
+          pattern="01[3-9][0-9]{8}"
+          placeholder="01XXXXXXXXX"
+          required
+        />
+        <button type="submit">Check</button>
+      </form>
+
+      <p class="hint">
+        Enter an 11-digit Bangladeshi mobile number (e.g. 017XXXXXXXX), without
+        +88.
+      </p>
+
+      <section id="status" class="status hidden"></section>
+      <section id="results" class="results hidden"></section>
+    </main>
+
+    <script>
+      const form = document.getElementById("checkForm");
+      const phoneInput = document.getElementById("phone");
+      const statusEl = document.getElementById("status");
+      const resultsEl = document.getElementById("results");
+
+      const COURIERS = ["steadfast", "pathao", "redx", "paperfly", "carrybee"];
+
+      function show(el, html) {
+        el.classList.remove("hidden");
+        el.innerHTML = html;
+      }
+      function hide(el) {
+        el.classList.add("hidden");
+        el.innerHTML = "";
+      }
+      function esc(v) {
+        return String(v).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      }
+
+      /**
+       * Detect which shape the courier returned:
+       *   - steadfast : has `delivery_ratio` (number)
+       *   - pathao    : has `data.customer_rating` (v2) or `data.show_count`
+       *   - carrybee  : has `fraud_count` OR `customer_name` (our extended shape)
+       *   - classic   : has success/cancel/total (numbers) — RedX, Paperfly
+       *   - error     : has `error` (string)
+       *   - none      : null
+       *   - unknown   : anything else
+       */
+      function shapeOf(data) {
+        if (!data) return "none";
+        if (typeof data.error === "string") return "error";
+        if (typeof data.delivery_ratio === "number") return "steadfast";
+        if (
+          data.data &&
+          typeof data.data === "object" &&
+          ("customer_rating" in data.data ||
+            "show_count" in data.data ||
+            data.data.version === "v2")
+        ) {
+          return "pathao";
+        }
+        // CarryBee — its parser adds fraud_count / customer_name / customer_id
+        if (
+          typeof data.fraud_count === "number" ||
+          typeof data.customer_name === "string" ||
+          data.customer_id !== undefined
+        ) {
+          return "carrybee";
+        }
+        if (
+          typeof data.success === "number" &&
+          typeof data.total === "number"
+        ) {
+          return "classic";
+        }
+        return "unknown";
+      }
+
+      // ── Pathao rating → card styling ──────────────────────────────────────
+      const PATHAO_RATING_MAP = {
+        excellent_customer: { cls: "good", label: "Excellent" },
+        good_customer: { cls: "good", label: "Good" },
+        average_customer: { cls: "warn", label: "Average" },
+        new_customer: { cls: "warn", label: "New" },
+        risky_customer: { cls: "bad", label: "Risky" },
+        bad_customer: { cls: "bad", label: "Bad" },
+      };
+
+      function renderCourierCard(name, data) {
+        const shape = shapeOf(data);
+
+        // ── No data ───────────────────────────────────────────────────────────
+        if (shape === "none") {
+          return `
+          <div class="card error">
+            <div class="card-header">
+              <span class="name">${esc(name)}</span>
+              <span class="badge error">No data</span>
+            </div>
+          </div>`;
+        }
+
+        // ── Error ─────────────────────────────────────────────────────────────
+        if (shape === "error") {
+          return `
+          <div class="card error">
+            <div class="card-header">
+              <span class="name">${esc(name)}</span>
+              <span class="badge error">Error</span>
+            </div>
+            <p class="msg">${esc(data.message || data.error)}</p>
+            ${data.status ? `<p class="status-code">HTTP ${esc(data.status)}</p>` : ""}
+          </div>`;
+        }
+
+        // ── Steadfast (pass-through, ratio-based) ─────────────────────────────
+        if (shape === "steadfast") {
+          const dr = Number(data.delivery_ratio || 0);
+          const cr = Number(data.cancellation_ratio || 0);
+          const cls = dr >= 70 ? "good" : dr >= 40 ? "warn" : "bad";
+
+          const band = data.volume_band
+            ? `<span class="band">${esc(data.volume_band)}</span>`
+            : "";
+          const range = data.volume_range
+            ? `<span class="range">${esc(data.volume_range)}</span>`
+            : "";
+          const reports =
+            typeof data.fraud_reports === "number"
+              ? `<div><span>Fraud Reports</span><strong>${esc(data.fraud_reports)}</strong></div>`
+              : "";
+
+          return `
+          <div class="card ${cls}">
+            <div class="card-header">
+              <span class="name">${esc(name)}</span>
+              <span class="badge ${cls}">${esc(dr)}%</span>
+            </div>
+            <div class="stats">
+              <div><span>Delivery Ratio</span><strong>${esc(dr)}%</strong></div>
+              <div><span>Cancellation Ratio</span><strong>${esc(cr)}%</strong></div>
+              ${reports}
+            </div>
+            ${band || range ? `<div class="meta">${band}${range}</div>` : ""}
+            <div class="bar"><div class="fill ${cls}" style="width:${Math.max(0, Math.min(100, dr))}%"></div></div>
+          </div>`;
+        }
+
+        // ── Pathao v2 (rating only) ───────────────────────────────────────────
+        if (shape === "pathao") {
+          const rating = data.data?.customer_rating || "unknown";
+          const mapped = PATHAO_RATING_MAP[rating];
+          const cls = mapped?.cls || "";
+          const label = mapped?.label || rating.replace(/_/g, " ");
+
+          const showCount =
+            data.data?.show_count === false
+              ? `<p class="msg">Pathao has hidden delivery counts for this number.</p>`
+              : "";
+
+          return `
+          <div class="card ${cls}">
+            <div class="card-header">
+              <span class="name">${esc(name)}</span>
+              <span class="badge ${cls}">${esc(label)}</span>
+            </div>
+            <div class="stats">
+              <div style="grid-column: span 3;">
+                <span>Customer Rating</span>
+                <strong>${esc(rating)}</strong>
+              </div>
+            </div>
+            ${showCount}
+          </div>`;
+        }
+
+        // ── CarryBee (extended shape with fraud_count + customer_name) ────────
+        if (shape === "carrybee") {
+          const ratio = Number(data.success_ratio || 0);
+          const fraud = Number(data.fraud_count || 0);
+          const hasFraud = fraud > 0;
+
+          // Fraud flagged → always red. Otherwise colour by success ratio.
+          const cls = hasFraud
+            ? "bad"
+            : ratio >= 70
+              ? "good"
+              : ratio >= 40
+                ? "warn"
+                : "bad";
+
+          const fraudChip = hasFraud
+            ? `<div class="fraud-alert">
+                 <span class="fraud-icon">⚠</span>
+                 <span><strong>${esc(fraud)}</strong> fraud report${fraud === 1 ? "" : "s"} on record</span>
+               </div>`
+            : `<div class="fraud-clear">
+                 <span class="fraud-icon">✓</span>
+                 <span>No fraud reports on record</span>
+               </div>`;
+
+          const nameChip = data.customer_name
+            ? `<p class="customer-name">${esc(data.customer_name)}</p>`
+            : "";
+
+          return `
+          <div class="card ${cls}">
+            <div class="card-header">
+              <span class="name">${esc(name)}</span>
+              <span class="badge ${cls}">${esc(ratio)}%</span>
+            </div>
+            ${nameChip}
+            <div class="stats stats-4">
+              <div><span>Success</span><strong>${esc(data.success ?? 0)}</strong></div>
+              <div><span>Cancel</span><strong>${esc(data.cancel ?? 0)}</strong></div>
+              <div><span>Total</span><strong>${esc(data.total ?? 0)}</strong></div>
+              <div class="stat-fraud">
+                <span>Fraud Count</span>
+                <strong class="${hasFraud ? "fraud-value" : ""}">${esc(fraud)}</strong>
+              </div>
+            </div>
+            <div class="bar"><div class="fill ${cls}" style="width:${Math.max(0, Math.min(100, ratio))}%"></div></div>
+            ${fraudChip}
+          </div>`;
+        }
+
+        // ── Classic count-based shape (RedX, Paperfly) ────────────────────────
+        if (shape === "classic") {
+          const ratio = Number(data.success_ratio || 0);
+          const cls = ratio >= 70 ? "good" : ratio >= 40 ? "warn" : "bad";
+
+          return `
+          <div class="card ${cls}">
+            <div class="card-header">
+              <span class="name">${esc(name)}</span>
+              <span class="badge ${cls}">${esc(ratio)}%</span>
+            </div>
+            <div class="stats">
+              <div><span>Success</span><strong>${esc(data.success ?? 0)}</strong></div>
+              <div><span>Cancel</span><strong>${esc(data.cancel ?? 0)}</strong></div>
+              <div><span>Total</span><strong>${esc(data.total ?? 0)}</strong></div>
+            </div>
+            <div class="bar"><div class="fill ${cls}" style="width:${Math.max(0, Math.min(100, ratio))}%"></div></div>
+          </div>`;
+        }
+
+        // ── Unknown shape — dump raw for debugging ────────────────────────────
+        return `
+        <div class="card">
+          <div class="card-header">
+            <span class="name">${esc(name)}</span>
+            <span class="badge">Raw</span>
+          </div>
+          <pre class="raw">${esc(JSON.stringify(data, null, 2))}</pre>
+        </div>`;
+      }
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const phone = phoneInput.value.trim();
+
+        if (!/^01[3-9][0-9]{8}$/.test(phone)) {
+          show(
+            statusEl,
+            `<div class="alert error">Please enter a valid 11-digit number.</div>`,
+          );
+          hide(resultsEl);
+          return;
+        }
+
+        show(statusEl, `<div class="alert info">Checking ${esc(phone)}…</div>`);
+        hide(resultsEl);
+
+        try {
+          const resp = await fetch(`/api/check/${encodeURIComponent(phone)}`);
+          const json = await resp.json();
+
+          if (!resp.ok || !json.success) {
+            show(
+              statusEl,
+              `<div class="alert error">${esc(json.error || "Request failed")}</div>`,
+            );
+            return;
+          }
+
+          const { data } = json;
+          const agg = data.aggregate || {};
+          const aggRatio = Number(agg.success_ratio || 0);
+          const aggCls =
+            aggRatio >= 70 ? "good" : aggRatio >= 40 ? "warn" : "bad";
+
+          const cards = COURIERS.map((c) => renderCourierCard(c, data[c])).join(
+            "",
+          );
+
+          resultsEl.innerHTML = `
+          <div class="aggregate ${aggCls}">
+            <h2>Aggregate</h2>
+            <div class="agg-stats">
+              <div><span>Total Success</span><strong>${esc(agg.total_success ?? 0)}</strong></div>
+              <div><span>Total Cancel</span><strong>${esc(agg.total_cancel ?? 0)}</strong></div>
+              <div><span>Total Deliveries</span><strong>${esc(agg.total_deliveries ?? 0)}</strong></div>
+              <div><span>Success Ratio</span><strong>${esc(aggRatio)}%</strong></div>
+              <div><span>Cancel Ratio</span><strong>${esc(agg.cancel_ratio ?? 0)}%</strong></div>
+            </div>
+            <p class="agg-note">
+              Aggregate sums counts from couriers that return them
+              (RedX, Paperfly, Carrybee). Steadfast reports ratios only, and
+              Pathao returns a customer rating without counts — neither
+              contributes to the totals.
+            </p>
+          </div>
+          <div class="grid">${cards}</div>
+        `;
+
+          hide(statusEl);
+          resultsEl.classList.remove("hidden");
+        } catch (err) {
+          show(
+            statusEl,
+            `<div class="alert error">Network error: ${esc(err.message)}</div>`,
+          );
+        }
+      });
+    </script>
+  </body>
+</html>
