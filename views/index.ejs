@@ -7,42 +7,72 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <main class="container">
-      <header>
-        <h1>🛡️ Courier Fraud Check</h1>
-        <p class="subtitle">by WebCraft</p>
-      </header>
+    <div class="app">
+      <main class="container">
+        <header>
+          <h1>🛡️ Courier Fraud Check</h1>
+          <p class="subtitle">by WebCraft</p>
+        </header>
 
-      <form id="checkForm" autocomplete="off">
-        <input
-          id="phone"
-          name="phone"
-          type="tel"
-          inputmode="numeric"
-          pattern="01[3-9][0-9]{8}"
-          placeholder="01XXXXXXXXX"
-          required
-        />
-        <button type="submit">Check</button>
-      </form>
+        <form id="checkForm" autocomplete="off">
+          <input
+            id="phone"
+            name="phone"
+            type="tel"
+            inputmode="numeric"
+            pattern="01[3-9][0-9]{8}"
+            placeholder="01XXXXXXXXX"
+            required
+          />
+          <button type="submit" id="checkBtn">Check</button>
+        </form>
 
-      <p class="hint">
-        Enter an 11-digit Bangladeshi mobile number (e.g. 017XXXXXXXX), without
-        +88.
-      </p>
+        <div class="controls">
+          <p class="hint">
+            Enter an 11-digit Bangladeshi mobile number (e.g. 017XXXXXXXX),
+            without +88.
+          </p>
+          <div class="couriers-status" id="couriersStatus"></div>
+        </div>
 
-      <section id="status" class="status hidden"></section>
-      <section id="results" class="results hidden"></section>
-    </main>
+        <section id="status" class="status hidden"></section>
+        <section id="results" class="results hidden"></section>
+      </main>
+
+      <footer class="site-footer">
+        <div class="footer-inner">
+          <div class="footer-brand">
+            Built by
+            <a href="https://webcraft.com.bd" target="_blank" rel="noopener">
+              WebCraft
+            </a>
+          </div>
+          <div class="footer-copy">
+            © <span id="year"></span> WebCraft. All rights reserved.
+          </div>
+        </div>
+      </footer>
+    </div>
 
     <script>
+      // ── Element refs ──────────────────────────────────────────────────────
       const form = document.getElementById("checkForm");
       const phoneInput = document.getElementById("phone");
+      const checkBtn = document.getElementById("checkBtn");
       const statusEl = document.getElementById("status");
       const resultsEl = document.getElementById("results");
+      const couriersStatusEl = document.getElementById("couriersStatus");
+      document.getElementById("year").textContent = new Date().getFullYear();
 
-      const COURIERS = ["steadfast", "pathao", "redx", "paperfly", "carrybee"];
+      // ── State ─────────────────────────────────────────────────────────────
+      /** @type {string[]} — filled from /api/couriers on load */
+      let AVAILABLE_COURIERS = [];
+      /** @type {string} — the phone number most recently checked */
+      let CURRENT_PHONE = "";
+      /** @type {object} — last full payload from /api/check/:phone */
+      let CURRENT_DATA = null;
 
+      // ── Utilities ─────────────────────────────────────────────────────────
       function show(el, html) {
         el.classList.remove("hidden");
         el.innerHTML = html;
@@ -64,17 +94,12 @@
             })[c],
         );
       }
+      function setLoading(on) {
+        checkBtn.disabled = on;
+        checkBtn.textContent = on ? "Checking…" : "Check";
+      }
 
-      /**
-       * Detect which shape the courier returned:
-       *   - steadfast : has `delivery_ratio` (number)
-       *   - pathao    : has `data.customer_rating` (v2) or `data.show_count`
-       *   - carrybee  : has `fraud_count` OR `customer_name` (our extended shape)
-       *   - classic   : has success/cancel/total (numbers) — RedX, Paperfly
-       *   - error     : has `error` (string)
-       *   - none      : null
-       *   - unknown   : anything else
-       */
+      // ── Shape detection ───────────────────────────────────────────────────
       function shapeOf(data) {
         if (!data) return "none";
         if (typeof data.error === "string") return "error";
@@ -88,7 +113,6 @@
         ) {
           return "pathao";
         }
-        // CarryBee — its parser adds fraud_count / customer_name / customer_id
         if (
           typeof data.fraud_count === "number" ||
           typeof data.customer_name === "string" ||
@@ -105,7 +129,6 @@
         return "unknown";
       }
 
-      // ── Pathao rating → card styling ──────────────────────────────────────
       const PATHAO_RATING_MAP = {
         excellent_customer: { cls: "good", label: "Excellent" },
         good_customer: { cls: "good", label: "Good" },
@@ -115,8 +138,13 @@
         bad_customer: { cls: "bad", label: "Bad" },
       };
 
+      // ── Card rendering ────────────────────────────────────────────────────
       function renderCourierCard(name, data) {
         const shape = shapeOf(data);
+        const refreshBtn = `
+          <button class="card-refresh" data-courier="${esc(name)}" title="Re-check this courier">
+            ↻
+          </button>`;
 
         // ── No data ───────────────────────────────────────────────────────────
         if (shape === "none") {
@@ -136,13 +164,14 @@
             <div class="card-header">
               <span class="name">${esc(name)}</span>
               <span class="badge error">Error</span>
+              ${refreshBtn}
             </div>
             <p class="msg">${esc(data.message || data.error)}</p>
             ${data.status ? `<p class="status-code">HTTP ${esc(data.status)}</p>` : ""}
           </div>`;
         }
 
-        // ── Steadfast (pass-through, ratio-based) ─────────────────────────────
+        // ── Steadfast ─────────────────────────────────────────────────────────
         if (shape === "steadfast") {
           const dr = Number(data.delivery_ratio || 0);
           const cr = Number(data.cancellation_ratio || 0);
@@ -164,6 +193,7 @@
             <div class="card-header">
               <span class="name">${esc(name)}</span>
               <span class="badge ${cls}">${esc(dr)}%</span>
+              ${refreshBtn}
             </div>
             <div class="stats">
               <div><span>Delivery Ratio</span><strong>${esc(dr)}%</strong></div>
@@ -175,7 +205,7 @@
           </div>`;
         }
 
-        // ── Pathao v2 (rating only) ───────────────────────────────────────────
+        // ── Pathao ────────────────────────────────────────────────────────────
         if (shape === "pathao") {
           const rating = data.data?.customer_rating || "unknown";
           const mapped = PATHAO_RATING_MAP[rating];
@@ -192,6 +222,7 @@
             <div class="card-header">
               <span class="name">${esc(name)}</span>
               <span class="badge ${cls}">${esc(label)}</span>
+              ${refreshBtn}
             </div>
             <div class="stats">
               <div style="grid-column: span 3;">
@@ -203,13 +234,11 @@
           </div>`;
         }
 
-        // ── CarryBee (extended shape with fraud_count + customer_name) ────────
+        // ── CarryBee ──────────────────────────────────────────────────────────
         if (shape === "carrybee") {
           const ratio = Number(data.success_ratio || 0);
           const fraud = Number(data.fraud_count || 0);
           const hasFraud = fraud > 0;
-
-          // Fraud flagged → always red. Otherwise colour by success ratio.
           const cls = hasFraud
             ? "bad"
             : ratio >= 70
@@ -237,6 +266,7 @@
             <div class="card-header">
               <span class="name">${esc(name)}</span>
               <span class="badge ${cls}">${esc(ratio)}%</span>
+              ${refreshBtn}
             </div>
             ${nameChip}
             <div class="stats stats-4">
@@ -253,7 +283,7 @@
           </div>`;
         }
 
-        // ── Classic count-based shape (RedX, Paperfly) ────────────────────────
+        // ── Classic (RedX, Paperfly) ──────────────────────────────────────────
         if (shape === "classic") {
           const ratio = Number(data.success_ratio || 0);
           const cls = ratio >= 70 ? "good" : ratio >= 40 ? "warn" : "bad";
@@ -263,6 +293,7 @@
             <div class="card-header">
               <span class="name">${esc(name)}</span>
               <span class="badge ${cls}">${esc(ratio)}%</span>
+              ${refreshBtn}
             </div>
             <div class="stats">
               <div><span>Success</span><strong>${esc(data.success ?? 0)}</strong></div>
@@ -273,56 +304,31 @@
           </div>`;
         }
 
-        // ── Unknown shape — dump raw for debugging ────────────────────────────
+        // ── Unknown ───────────────────────────────────────────────────────────
         return `
         <div class="card">
           <div class="card-header">
             <span class="name">${esc(name)}</span>
             <span class="badge">Raw</span>
+            ${refreshBtn}
           </div>
           <pre class="raw">${esc(JSON.stringify(data, null, 2))}</pre>
         </div>`;
       }
 
-      form.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const phone = phoneInput.value.trim();
+      // ── Full result renderer ──────────────────────────────────────────────
+      function renderResults(data) {
+        CURRENT_DATA = data;
+        const agg = data.aggregate || {};
+        const aggRatio = Number(agg.success_ratio || 0);
+        const aggCls =
+          aggRatio >= 70 ? "good" : aggRatio >= 40 ? "warn" : "bad";
 
-        if (!/^01[3-9][0-9]{8}$/.test(phone)) {
-          show(
-            statusEl,
-            `<div class="alert error">Please enter a valid 11-digit number.</div>`,
-          );
-          hide(resultsEl);
-          return;
-        }
+        const cards = AVAILABLE_COURIERS.map((c) =>
+          renderCourierCard(c, data[c]),
+        ).join("");
 
-        show(statusEl, `<div class="alert info">Checking ${esc(phone)}…</div>`);
-        hide(resultsEl);
-
-        try {
-          const resp = await fetch(`/api/check/${encodeURIComponent(phone)}`);
-          const json = await resp.json();
-
-          if (!resp.ok || !json.success) {
-            show(
-              statusEl,
-              `<div class="alert error">${esc(json.error || "Request failed")}</div>`,
-            );
-            return;
-          }
-
-          const { data } = json;
-          const agg = data.aggregate || {};
-          const aggRatio = Number(agg.success_ratio || 0);
-          const aggCls =
-            aggRatio >= 70 ? "good" : aggRatio >= 40 ? "warn" : "bad";
-
-          const cards = COURIERS.map((c) => renderCourierCard(c, data[c])).join(
-            "",
-          );
-
-          resultsEl.innerHTML = `
+        resultsEl.innerHTML = `
           <div class="aggregate ${aggCls}">
             <h2>Aggregate</h2>
             <div class="agg-stats">
@@ -341,16 +347,141 @@
           </div>
           <div class="grid">${cards}</div>
         `;
+        resultsEl.classList.remove("hidden");
 
+        // Bind refresh buttons
+        resultsEl.querySelectorAll(".card-refresh").forEach((btn) => {
+          btn.addEventListener("click", () =>
+            refreshSingleCourier(btn.dataset.courier, btn),
+          );
+        });
+      }
+
+      // ── Individual courier refresh (uses /api/check/:courier/:phone) ──────
+      async function refreshSingleCourier(courier, btn) {
+        if (!CURRENT_PHONE || !CURRENT_DATA) return;
+        btn.disabled = true;
+        btn.classList.add("spinning");
+
+        try {
+          const resp = await fetch(
+            `/api/check/${encodeURIComponent(courier)}/${encodeURIComponent(CURRENT_PHONE)}`,
+          );
+          const json = await resp.json();
+
+          if (!json.success || !json.data) {
+            btn.classList.remove("spinning");
+            btn.disabled = false;
+            return;
+          }
+
+          CURRENT_DATA[courier] = json.data;
+
+          // Replace just this card
+          const card = btn.closest(".card");
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = renderCourierCard(courier, json.data).trim();
+          const newCard = wrapper.firstElementChild;
+          card.replaceWith(newCard);
+
+          newCard
+            .querySelector(".card-refresh")
+            .addEventListener("click", (e) =>
+              refreshSingleCourier(courier, e.currentTarget),
+            );
+        } catch (err) {
+          console.error("Refresh failed:", err);
+          btn.classList.remove("spinning");
+          btn.disabled = false;
+        }
+      }
+
+      // ── Load courier list on startup (uses /api/couriers) ─────────────────
+      async function loadCouriers() {
+        try {
+          const resp = await fetch("/api/couriers");
+          const json = await resp.json();
+
+          if (!json.success || !Array.isArray(json.couriers)) {
+            throw new Error("Invalid response");
+          }
+
+          const configured = json.couriers.filter((c) => c.configured);
+          const disabled = json.couriers.filter((c) => !c.configured);
+
+          AVAILABLE_COURIERS = configured.map((c) => c.name);
+
+          if (disabled.length > 0) {
+            couriersStatusEl.innerHTML = `
+              <span class="couriers-status-label">Active:</span>
+              ${configured.map((c) => `<span class="chip chip-on">${esc(c.name)}</span>`).join("")}
+              <span class="couriers-status-label">Disabled:</span>
+              ${disabled.map((c) => `<span class="chip chip-off">${esc(c.name)}</span>`).join("")}
+            `;
+          } else {
+            couriersStatusEl.innerHTML = `
+              <span class="couriers-status-label">Active:</span>
+              ${configured.map((c) => `<span class="chip chip-on">${esc(c.name)}</span>`).join("")}
+            `;
+          }
+        } catch (err) {
+          console.error("Could not load courier list:", err);
+          // Fallback so the UI still works
+          AVAILABLE_COURIERS = [
+            "steadfast",
+            "pathao",
+            "redx",
+            "paperfly",
+            "carrybee",
+          ];
+        }
+      }
+
+      // ── Main form submit (uses /api/check/:phone) ─────────────────────────
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const phone = phoneInput.value.trim();
+
+        if (!/^01[3-9][0-9]{8}$/.test(phone)) {
+          show(
+            statusEl,
+            `<div class="alert error">Please enter a valid 11-digit number.</div>`,
+          );
+          hide(resultsEl);
+          return;
+        }
+
+        CURRENT_PHONE = phone;
+        setLoading(true);
+        show(statusEl, `<div class="alert info">Checking ${esc(phone)}…</div>`);
+        hide(resultsEl);
+
+        try {
+          const resp = await fetch(`/api/check/${encodeURIComponent(phone)}`);
+          const json = await resp.json();
+
+          if (!resp.ok || !json.success) {
+            show(
+              statusEl,
+              `<div class="alert error">${esc(json.error || "Request failed")}</div>`,
+            );
+            return;
+          }
+
+          renderResults(json.data);
           hide(statusEl);
-          resultsEl.classList.remove("hidden");
         } catch (err) {
           show(
             statusEl,
             `<div class="alert error">Network error: ${esc(err.message)}</div>`,
           );
+        } finally {
+          setLoading(false);
         }
       });
+
+      // ── Boot ──────────────────────────────────────────────────────────────
+      loadCouriers();
     </script>
   </body>
 </html>

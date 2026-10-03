@@ -80,7 +80,7 @@ export class PaperflyService implements CourierService {
           timeout: 30000,
         },
       );
-      console.log(resp.data);
+      // console.log(resp.data);
       if (!(resp.status >= 200 && resp.status < 300)) {
         return {
           error: "Failed to fetch fraud data from Paperfly",
