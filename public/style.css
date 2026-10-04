@@ -523,6 +523,219 @@ button:hover {
   color: var(--muted);
 }
 
+/* ── Aggregate header with info icon ─────────────────────────────────── */
+.agg-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.agg-head h2 {
+  margin: 0;
+}
+
+.info {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: help;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+  outline: none;
+}
+
+.info:hover,
+.info:focus {
+  background: var(--accent);
+  color: #0b1220;
+}
+
+/* ── Tooltip card ────────────────────────────────────────────────────── */
+.info-tip {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  width: 420px;
+  max-width: min(90vw, 420px);
+  background: #0b1220;
+  color: var(--text);
+  border: 1px solid var(--panel-2);
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  font-weight: 400;
+  text-align: left;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease,
+    visibility 0.15s;
+  z-index: 100;
+}
+
+.info:hover .info-tip,
+.info:focus .info-tip,
+.info:focus-within .info-tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+
+.info-tip::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 10px;
+  height: 10px;
+  background: #0b1220;
+  border-left: 1px solid var(--panel-2);
+  border-top: 1px solid var(--panel-2);
+}
+
+/* ── Rule content ────────────────────────────────────────────────────── */
+.info-tip .rule h4 {
+  margin: 0 0 6px;
+  font-size: 0.8rem;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.info-tip .rule h4 + p,
+.info-tip .rule h4 + ul {
+  margin-top: 0;
+}
+
+.info-tip .rule p {
+  margin: 0 0 12px;
+  color: #cbd5e1;
+}
+
+.info-tip .rule ul {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  color: #cbd5e1;
+}
+
+.info-tip .rule ul li {
+  margin-bottom: 4px;
+}
+
+.info-tip .rule-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 12px;
+  font-size: 0.7rem;
+}
+
+.info-tip .rule-table th,
+.info-tip .rule-table td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+}
+
+.info-tip .rule-table th {
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.65rem;
+}
+
+.info-tip .rule-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* ── Group breakdown block ───────────────────────────────────────────── */
+.group-breakdown {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(148, 163, 184, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group-breakdown-label {
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+}
+
+.group-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+}
+
+.group-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.group-tag-a {
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--accent);
+}
+
+.group-tag-b {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c4b5fd;
+}
+
+.group-label {
+  color: var(--muted);
+  flex: 1;
+}
+
+.group-ratio {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+/* ── Pathao stats grid — adapts to 1, 2, or 3 cells ──────────────────── */
+.card .stats.stats-1 {
+  grid-template-columns: 1fr;
+}
+
+.card .stats.stats-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.card .stats.stats-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
 @media (max-width: 480px) {
   .footer-inner {
     flex-direction: column;

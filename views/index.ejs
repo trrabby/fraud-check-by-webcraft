@@ -65,11 +65,8 @@
       document.getElementById("year").textContent = new Date().getFullYear();
 
       // ── State ─────────────────────────────────────────────────────────────
-      /** @type {string[]} — filled from /api/couriers on load */
       let AVAILABLE_COURIERS = [];
-      /** @type {string} — the phone number most recently checked */
       let CURRENT_PHONE = "";
-      /** @type {object} — last full payload from /api/check/:phone */
       let CURRENT_DATA = null;
 
       // ── Utilities ─────────────────────────────────────────────────────────
@@ -109,7 +106,8 @@
           typeof data.data === "object" &&
           ("customer_rating" in data.data ||
             "show_count" in data.data ||
-            data.data.version === "v2")
+            data.data.version === "v2" ||
+            data.data.data_type === "rating")
         ) {
           return "pathao";
         }
@@ -132,10 +130,19 @@
       const PATHAO_RATING_MAP = {
         excellent_customer: { cls: "good", label: "Excellent" },
         good_customer: { cls: "good", label: "Good" },
+        moderate_customer: { cls: "warn", label: "Moderate" },
         average_customer: { cls: "warn", label: "Average" },
         new_customer: { cls: "warn", label: "New" },
         risky_customer: { cls: "bad", label: "Risky" },
         bad_customer: { cls: "bad", label: "Bad" },
+      };
+
+      const PATHAO_RISK_MAP = {
+        low: "good",
+        medium: "warn",
+        high: "bad",
+        very_high: "bad",
+        unknown: "",
       };
 
       // ── Card rendering ────────────────────────────────────────────────────
@@ -146,7 +153,6 @@
             ↻
           </button>`;
 
-        // ── No data ───────────────────────────────────────────────────────────
         if (shape === "none") {
           return `
           <div class="card error">
@@ -157,7 +163,6 @@
           </div>`;
         }
 
-        // ── Error ─────────────────────────────────────────────────────────────
         if (shape === "error") {
           return `
           <div class="card error">
@@ -171,7 +176,6 @@
           </div>`;
         }
 
-        // ── Steadfast ─────────────────────────────────────────────────────────
         if (shape === "steadfast") {
           const dr = Number(data.delivery_ratio || 0);
           const cr = Number(data.cancellation_ratio || 0);
@@ -205,12 +209,29 @@
           </div>`;
         }
 
-        // ── Pathao ────────────────────────────────────────────────────────────
         if (shape === "pathao") {
           const rating = data.data?.customer_rating || "unknown";
+          const riskLevel = data.data?.risk_level;
+          const successRate = data.data?.success_rate;
+
           const mapped = PATHAO_RATING_MAP[rating];
-          const cls = mapped?.cls || "";
+          const cls = mapped?.cls || PATHAO_RISK_MAP[riskLevel] || "";
           const label = mapped?.label || rating.replace(/_/g, " ");
+
+          const cells = [];
+          cells.push(
+            `<div><span>Customer Rating</span><strong>${esc(rating)}</strong></div>`,
+          );
+          if (typeof riskLevel === "string") {
+            cells.push(
+              `<div><span>Risk Level</span><strong>${esc(riskLevel)}</strong></div>`,
+            );
+          }
+          if (typeof successRate === "number") {
+            cells.push(
+              `<div><span>Est. Success Rate</span><strong>${esc(successRate)}%</strong></div>`,
+            );
+          }
 
           const showCount =
             data.data?.show_count === false
@@ -224,17 +245,13 @@
               <span class="badge ${cls}">${esc(label)}</span>
               ${refreshBtn}
             </div>
-            <div class="stats">
-              <div style="grid-column: span 3;">
-                <span>Customer Rating</span>
-                <strong>${esc(rating)}</strong>
-              </div>
+            <div class="stats stats-${cells.length}">
+              ${cells.join("")}
             </div>
             ${showCount}
           </div>`;
         }
 
-        // ── CarryBee ──────────────────────────────────────────────────────────
         if (shape === "carrybee") {
           const ratio = Number(data.success_ratio || 0);
           const fraud = Number(data.fraud_count || 0);
@@ -283,7 +300,6 @@
           </div>`;
         }
 
-        // ── Classic (RedX, Paperfly) ──────────────────────────────────────────
         if (shape === "classic") {
           const ratio = Number(data.success_ratio || 0);
           const cls = ratio >= 70 ? "good" : ratio >= 40 ? "warn" : "bad";
@@ -304,7 +320,6 @@
           </div>`;
         }
 
-        // ── Unknown ───────────────────────────────────────────────────────────
         return `
         <div class="card">
           <div class="card-header">
@@ -314,6 +329,63 @@
           </div>
           <pre class="raw">${esc(JSON.stringify(data, null, 2))}</pre>
         </div>`;
+      }
+
+      // ── Aggregation rule (shown in the info tooltip) ─────────────────────
+      function renderAggregateRule() {
+        return `
+          <div class="rule">
+            <h4>The 60 / 40 aggregation rule</h4>
+            <p>
+              The aggregate blends two groups of couriers to produce a single
+              success ratio. Each group's ratio is weighted and combined —
+              real counts, ratio buckets, and Pathao's rating signal all fold
+              into the same currency.
+            </p>
+
+            <table class="rule-table">
+              <thead>
+                <tr>
+                  <th>Group</th>
+                  <th>Couriers</th>
+                  <th>Weight</th>
+                  <th>Source of numbers</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>A</strong></td>
+                  <td>Steadfast, Pathao</td>
+                  <td>60%</td>
+                  <td>
+                    Steadfast: delivery_ratio applied to the volume bucket.
+                    Pathao: success_rate mapped onto a virtual 10-order profile.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>B</strong></td>
+                  <td>RedX, Paperfly, Carrybee</td>
+                  <td>40%</td>
+                  <td>Native delivered / cancelled counts.</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h4>Per-courier confidence inside a group</h4>
+            <ul>
+              <li><strong>Steadfast</strong> — 0.9 when a volume bucket is present, else 0.5</li>
+              <li><strong>Pathao</strong> — 0.7 (low risk) · 0.6 (medium) · 0.5 (high) · 0.4 (very high) · 0.3 (unknown)</li>
+              <li><strong>Paperfly / Carrybee / RedX</strong> — 1.0 when real counts are returned, else 0.4</li>
+            </ul>
+
+            <h4>Edge case</h4>
+            <p>
+              If only one group has usable data, that group's ratio is used at
+              100% — never scaled down to 60% or 40%. This keeps the aggregate
+              honest for customers who only have history on one side.
+            </p>
+          </div>
+        `;
       }
 
       // ── Full result renderer ──────────────────────────────────────────────
@@ -328,9 +400,44 @@
           renderCourierCard(c, data[c]),
         ).join("");
 
+        // Group ratio lines — only shown when at least one is not null
+        const groupLines = [];
+        if (agg.group_a_ratio !== null && agg.group_a_ratio !== undefined) {
+          groupLines.push(
+            `<div class="group-line">
+               <span class="group-tag group-tag-a">A</span>
+               <span class="group-label">Steadfast + Pathao (60%)</span>
+               <strong class="group-ratio">${esc(agg.group_a_ratio)}%</strong>
+             </div>`,
+          );
+        }
+        if (agg.group_b_ratio !== null && agg.group_b_ratio !== undefined) {
+          groupLines.push(
+            `<div class="group-line">
+               <span class="group-tag group-tag-b">B</span>
+               <span class="group-label">RedX + Paperfly + Carrybee (40%)</span>
+               <strong class="group-ratio">${esc(agg.group_b_ratio)}%</strong>
+             </div>`,
+          );
+        }
+
+        const groupBlock = groupLines.length
+          ? `<div class="group-breakdown">
+               <span class="group-breakdown-label">Group breakdown</span>
+               ${groupLines.join("")}
+             </div>`
+          : "";
+
         resultsEl.innerHTML = `
           <div class="aggregate ${aggCls}">
-            <h2>Aggregate</h2>
+            <div class="agg-head">
+              <h2>Aggregate</h2>
+              <span class="info" tabindex="0" aria-label="How the aggregate is calculated">
+                ⓘ
+                <span class="info-tip">${renderAggregateRule()}</span>
+              </span>
+            </div>
+
             <div class="agg-stats">
               <div><span>Total Success</span><strong>${esc(agg.total_success ?? 0)}</strong></div>
               <div><span>Total Cancel</span><strong>${esc(agg.total_cancel ?? 0)}</strong></div>
@@ -338,11 +445,12 @@
               <div><span>Success Ratio</span><strong>${esc(aggRatio)}%</strong></div>
               <div><span>Cancel Ratio</span><strong>${esc(agg.cancel_ratio ?? 0)}%</strong></div>
             </div>
+
+            ${groupBlock}
+
             <p class="agg-note">
-              Aggregate sums counts from couriers that return them
-              (RedX, Paperfly, Carrybee). Steadfast reports ratios only, and
-              Pathao returns a customer rating without counts — neither
-              contributes to the totals.
+              Weighted blend of all courier signals. Hover the ⓘ icon
+              for the full rule.
             </p>
           </div>
           <div class="grid">${cards}</div>
@@ -357,7 +465,7 @@
         });
       }
 
-      // ── Individual courier refresh (uses /api/check/:courier/:phone) ──────
+      // ── Individual courier refresh ────────────────────────────────────────
       async function refreshSingleCourier(courier, btn) {
         if (!CURRENT_PHONE || !CURRENT_DATA) return;
         btn.disabled = true;
@@ -377,7 +485,6 @@
 
           CURRENT_DATA[courier] = json.data;
 
-          // Replace just this card
           const card = btn.closest(".card");
           const wrapper = document.createElement("div");
           wrapper.innerHTML = renderCourierCard(courier, json.data).trim();
@@ -396,7 +503,7 @@
         }
       }
 
-      // ── Load courier list on startup (uses /api/couriers) ─────────────────
+      // ── Load courier list on startup ──────────────────────────────────────
       async function loadCouriers() {
         try {
           const resp = await fetch("/api/couriers");
@@ -411,22 +518,20 @@
 
           AVAILABLE_COURIERS = configured.map((c) => c.name);
 
-          if (disabled.length > 0) {
-            couriersStatusEl.innerHTML = `
-              <span class="couriers-status-label">Active:</span>
-              ${configured.map((c) => `<span class="chip chip-on">${esc(c.name)}</span>`).join("")}
-              <span class="couriers-status-label">Disabled:</span>
-              ${disabled.map((c) => `<span class="chip chip-off">${esc(c.name)}</span>`).join("")}
-            `;
-          } else {
-            couriersStatusEl.innerHTML = `
-              <span class="couriers-status-label">Active:</span>
-              ${configured.map((c) => `<span class="chip chip-on">${esc(c.name)}</span>`).join("")}
-            `;
-          }
+          const activeChips = configured
+            .map((c) => `<span class="chip chip-on">${esc(c.name)}</span>`)
+            .join("");
+          const disabledChips = disabled
+            .map((c) => `<span class="chip chip-off">${esc(c.name)}</span>`)
+            .join("");
+
+          couriersStatusEl.innerHTML = `
+            <span class="couriers-status-label">Active:</span>
+            ${activeChips}
+            ${disabled.length ? `<span class="couriers-status-label">Disabled:</span>${disabledChips}` : ""}
+          `;
         } catch (err) {
           console.error("Could not load courier list:", err);
-          // Fallback so the UI still works
           AVAILABLE_COURIERS = [
             "steadfast",
             "pathao",
@@ -437,7 +542,7 @@
         }
       }
 
-      // ── Main form submit (uses /api/check/:phone) ─────────────────────────
+      // ── Main form submit ──────────────────────────────────────────────────
       form.addEventListener("submit", async (e) => {
         e.preventDefault();
         const phone = phoneInput.value.trim();
