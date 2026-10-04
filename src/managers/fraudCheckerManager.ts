@@ -42,7 +42,6 @@ function getDisabledCouriers(): Set<CourierKey> {
 
 export class FraudCheckerManager {
   public readonly services: Record<CourierKey, CourierService | null>;
-  private readonly activeKeys: CourierKey[];
   private readonly disabledKeys: Set<CourierKey>;
 
   constructor() {
@@ -57,7 +56,6 @@ export class FraudCheckerManager {
     this.disabledKeys = getDisabledCouriers();
 
     const services = {} as Record<CourierKey, CourierService | null>;
-    const active: CourierKey[] = [];
 
     for (const key of ALL_COURIER_KEYS) {
       if (this.disabledKeys.has(key)) {
@@ -66,7 +64,6 @@ export class FraudCheckerManager {
       }
       try {
         services[key] = registry[key]();
-        active.push(key);
       } catch (e) {
         console.warn(
           `[Courier Fraud Check] ${key} disabled: ${(e as Error).message}`,
@@ -76,7 +73,6 @@ export class FraudCheckerManager {
     }
 
     this.services = services;
-    this.activeKeys = active;
   }
 
   private emptyAggregate(): AggregateStats {
